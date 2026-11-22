@@ -3,19 +3,34 @@ name: Terraform
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, closed]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   validate:
-    if: github.event.action != 'closed' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    outputs:
+      merged_pr: ${{ steps.merged_pr.outputs.merged_pr }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.merged && github.event.pull_request.merge_commit_sha || github.sha }}
+      - name: Check whether this push is a PR merge
+        if: github.event_name == 'push'
+        id: merged_pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prs=$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls")
+          if echo "$prs" | jq -e --arg sha "$GITHUB_SHA" \
+            '.[] | select(.base.ref == "main" and .merged_at != null and .merge_commit_sha == $sha)' >/dev/null; then
+            echo "merged_pr=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "merged_pr=false" >> "$GITHUB_OUTPUT"
+            echo "No merged pull request matched this commit; apply will be skipped."
+          fi
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.10.5
@@ -24,7 +39,7 @@ jobs:
       - run: terraform validate
 
   apply:
-    if: github.event.action == 'closed' && github.event.pull_request.merged == true
+    if: github.event_name == 'push' && needs.validate.outputs.merged_pr == 'true'
     needs: validate
     runs-on: ubuntu-latest
     environment: production
@@ -36,8 +51,6 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
       - name: Reject stale deployments
         run: |
           git fetch --no-tags origin main

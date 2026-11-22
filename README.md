@@ -2,7 +2,8 @@
 
 A pull request to `main` validates Terraform. After a pull request is merged,
 the apply job waits for approval in the `production` GitHub environment, then
-uses AWS OIDC credentials to apply the merged commit.
+uses AWS OIDC credentials to apply the merged commit. The workflow runs on a
+push to `main` and checks that its commit is the merge commit of a pull request.
 
 The example creates a private S3 bucket in `ap-south-1`. Terraform state is
 stored in a separate, pre-existing S3 bucket. Both buckets can incur charges.
